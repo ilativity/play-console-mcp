@@ -8,6 +8,8 @@ export const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
   "androidpublisher.googleapis.com",
   "playdeveloperreporting.googleapis.com",
   "oauth2.googleapis.com",
+  // Mode B (keyless) only: the user token is traded for a service-account token here.
+  "iamcredentials.googleapis.com",
 ]);
 
 export const BASES = {

@@ -137,7 +137,7 @@ export class FakePlay extends FakeFetch {
 
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
-    keySource: undefined,
+    authSource: undefined,
     defaultPackage: PKG,
     readOnly: false,
     allowDestructive: false,

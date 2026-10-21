@@ -7,12 +7,12 @@ import { createServer } from "./server.js";
 
 async function main(): Promise<void> {
   const config = loadConfig();
-  const client = new PlayClient({ getToken: createTokenProvider(config.keySource) });
+  const client = new PlayClient({ getToken: createTokenProvider(config.authSource) });
   const { server, registered } = createServer({ config, client });
   await server.connect(new StdioServerTransport());
   // stdout carries the protocol; diagnostics go to stderr.
   const mode = config.readOnly ? "read-only" : config.allowDestructive ? "writes + destructive" : "writes (guarded)";
-  console.error(`play-console-mcp: ${registered.length} tools, ${mode}${config.keySource ? "" : ", NO KEY CONFIGURED"}`);
+  console.error(`play-console-mcp: ${registered.length} tools, ${mode}${config.authSource ? (config.authSource.kind === "impersonate" ? ", keyless (impersonation)" : "") : ", NO CREDENTIALS CONFIGURED"}`);
 }
 
 main().catch((e: unknown) => {

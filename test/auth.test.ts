@@ -74,10 +74,26 @@ describe("token provider", () => {
 
 describe("config", () => {
   it("prefers PLAY_MCP_KEY_PATH, then PLAY_MCP_KEY, then GOOGLE_APPLICATION_CREDENTIALS", () => {
-    expect(loadConfig({ PLAY_MCP_KEY_PATH: "/a", PLAY_MCP_KEY: "{}", GOOGLE_APPLICATION_CREDENTIALS: "/c" }).keySource).toEqual({ kind: "path", path: "/a" });
-    expect(loadConfig({ PLAY_MCP_KEY: "{}", GOOGLE_APPLICATION_CREDENTIALS: "/c" }).keySource).toEqual({ kind: "inline", json: "{}" });
-    expect(loadConfig({ GOOGLE_APPLICATION_CREDENTIALS: "/c" }).keySource).toEqual({ kind: "path", path: "/c" });
-    expect(loadConfig({}).keySource).toBeUndefined();
+    expect(loadConfig({ PLAY_MCP_KEY_PATH: "/a", PLAY_MCP_KEY: "{}", GOOGLE_APPLICATION_CREDENTIALS: "/c" }).authSource).toEqual({ kind: "path", path: "/a" });
+    expect(loadConfig({ PLAY_MCP_KEY: "{}", GOOGLE_APPLICATION_CREDENTIALS: "/c" }).authSource).toEqual({ kind: "inline", json: "{}" });
+    expect(loadConfig({ GOOGLE_APPLICATION_CREDENTIALS: "/c" }).authSource).toEqual({ kind: "path", path: "/c" });
+    expect(loadConfig({}).authSource).toBeUndefined();
+  });
+
+  it("PLAY_MCP_IMPERSONATE (mode B) beats every key variable; GOOGLE_APPLICATION_CREDENTIALS then names the ADC file", () => {
+    const env = { PLAY_MCP_IMPERSONATE: "sa@p.iam.gserviceaccount.com", PLAY_MCP_KEY_PATH: "/a", PLAY_MCP_KEY: "{}" };
+    expect(loadConfig({ ...env, GOOGLE_APPLICATION_CREDENTIALS: "/adc.json" }).authSource).toEqual({
+      kind: "impersonate",
+      serviceAccount: "sa@p.iam.gserviceaccount.com",
+      adcPath: "/adc.json",
+    });
+  });
+
+  it("mode B defaults to gcloud's ADC location per platform", () => {
+    const win = loadConfig({ PLAY_MCP_IMPERSONATE: "sa@x", APPDATA: "/appdata" }, "win32").authSource;
+    expect(win).toMatchObject({ adcPath: expect.stringMatching(/appdata[\\/]gcloud[\\/]application_default_credentials\.json$/) });
+    const nix = loadConfig({ PLAY_MCP_IMPERSONATE: "sa@x" }, "linux").authSource;
+    expect(nix).toMatchObject({ adcPath: expect.stringMatching(/\.config[\\/]gcloud[\\/]application_default_credentials\.json$/) });
   });
 
   it("parses flags", () => {

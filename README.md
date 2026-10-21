@@ -7,6 +7,7 @@ a preview, not a release.
 
 - stdio only (no network listener), Node ≥ 20
 - three runtime dependencies: `@modelcontextprotocol/sdk`, `zod`, `jose`
+- signs in with a service-account key **or keylessly** by impersonating the account from your gcloud login
 - talks straight to the Google REST APIs over `fetch`; the bearer token can only go to a
   hard-coded list of Google hosts
 - published from CI with [npm provenance](https://docs.npmjs.com/generating-provenance-statements),
@@ -53,13 +54,33 @@ are a second layer on top of it.
    release permissions only if you'll use the release tools.
 3. Keep the key file outside any repository.
 
+### Keyless mode (no key file)
+
+If your organisation discourages downloading service-account keys, let your own Google login
+impersonate the service account instead:
+
+```bash
+gcloud iam service-accounts add-iam-policy-binding <sa-email> \
+  --member=user:<you> --role=roles/iam.serviceAccountTokenCreator
+gcloud auth application-default login
+```
+
+Then set `PLAY_MCP_IMPERSONATE=<sa-email>` and leave out the key variables. The server refreshes
+your gcloud user token and exchanges it for a short-lived service-account token through the IAM
+Credentials API. Every Play call is still made as the service account.
+
+What this improves, and nothing more: no long-lived private key exists on disk. The gcloud file
+still holds a **user refresh token**, which is a secret too. You can revoke it from your Google
+account, and it can only mint tokens for service accounts you're allowed to impersonate.
+
 ## Configuration
 
 | Variable | Meaning |
 |---|---|
 | `PLAY_MCP_KEY_PATH` | Path to the service-account JSON key (preferred). |
 | `PLAY_MCP_KEY` | The key JSON inline (for secret managers). |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Fallback key path. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Fallback key path. In keyless mode, the path of the gcloud ADC file (default: gcloud's own location). |
+| `PLAY_MCP_IMPERSONATE` | Service-account email for keyless mode. When set, it wins over the key variables. |
 | `PLAY_MCP_PACKAGE` | Default package name; every tool also accepts `package_name`. |
 | `PLAY_MCP_READ_ONLY=1` | Register **only** read tools. The client never sees a write tool. |
 | `PLAY_MCP_ALLOW_DESTRUCTIVE=1` | Register the destructive tools (delete images or listings) and allow replacing a whole tester list. |
