@@ -40,6 +40,14 @@ describe("withEdit", () => {
     expect(fake.openEdits.size).toBe(0);
   });
 
+  it("a lost commit response is reported as UNKNOWN, not as a plain failure", async () => {
+    const fake = new FakePlay();
+    fake.on("POST", /:commit$/, () => {
+      throw new TypeError("fetch failed");
+    });
+    await expect(withEdit(testClient(fake), PKG, async () => "ok")).rejects.toThrow(/outcome is UNKNOWN.*release_status/);
+  });
+
   it("the original error wins even if the cleanup DELETE fails too", async () => {
     const fake = new FakePlay();
     fake.on("DELETE", /edits\/edit1$/, { status: 500 });

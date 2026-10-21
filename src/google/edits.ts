@@ -40,7 +40,17 @@ export async function withEdit<T>(
       await client.request("publisher", `${base}:validate`, { method: "POST" });
       return { result, editId, dryRun: true, committed: false, note: "Validated and discarded; nothing changed." };
     }
-    const commit = await commitEdit(client, base, opts.changesNotSentForReview === true);
+    let commit: Awaited<ReturnType<typeof commitEdit>>;
+    try {
+      commit = await commitEdit(client, base, opts.changesNotSentForReview === true);
+    } catch (e) {
+      // Google answered with an error: the commit did not happen. Anything else (timeout,
+      // dropped connection) means we can't know — say so, so nobody blindly retries a release.
+      if (e instanceof GoogleApiError) throw e;
+      throw new Error(
+        `The commit's outcome is UNKNOWN (${(e as Error).message}). The change may have been applied. Check release_status (or the Console) before retrying.`,
+      );
+    }
     committed = true;
     return { result, editId, dryRun: false, committed: true, ...commit };
   } finally {
