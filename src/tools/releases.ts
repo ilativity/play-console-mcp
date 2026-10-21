@@ -348,9 +348,16 @@ export const releaseTools = [
             picked = (source.releases ?? []).find((r) => sameCodes(r, wanted));
             if (!picked) throw new SafetyError(`No release with version codes ${wanted.versionCodes?.join(", ")} on ${args.from_track}.`);
           } else {
-            picked = findRelease(source, ["inProgress", "completed", "halted", "draft"]);
-            const inProgress = (source.releases ?? []).find((r) => r.status === "inProgress");
-            if (inProgress) picked = inProgress;
+            // Preference, not array order: in-progress, else completed. A draft or halted
+            // release is only promoted when named by version_codes.
+            const releases = source.releases ?? [];
+            picked = releases.find((r) => r.status === "inProgress") ?? releases.find((r) => r.status === "completed");
+            if (!picked) {
+              const present = releases.map((r) => r.status).join(", ") || "none";
+              throw new SafetyError(
+                `Track ${args.from_track} has no in-progress or completed release to promote (present: ${present}). Name one with version_codes.`,
+              );
+            }
           }
           const release = buildRelease({
             versionCodes: picked.versionCodes ?? [],

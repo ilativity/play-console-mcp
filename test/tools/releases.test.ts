@@ -159,6 +159,23 @@ describe("promote_release", () => {
     expect(fake.tracks.beta?.[0]?.versionCodes).toEqual(["11"]);
   });
 
+  it("by default prefers in-progress, else completed — never a draft or halted release listed first", async () => {
+    fake.tracks.beta = [
+      { versionCodes: ["13"], status: "draft" },
+      { versionCodes: ["12"], status: "halted", userFraction: 0.1 },
+      { versionCodes: ["11"], status: "completed" },
+    ];
+    await h.call("promote_release", { from_track: "beta", to_track: "alpha", status: "completed" });
+    expect(fake.tracks.alpha?.[0]?.versionCodes).toEqual(["11"]);
+
+    fake.tracks.beta = [{ versionCodes: ["13"], status: "draft" }];
+    expect(await h.callError("promote_release", { from_track: "beta", to_track: "alpha", status: "completed" })).toMatch(
+      /no in-progress or completed release/,
+    );
+    await h.call("promote_release", { from_track: "beta", to_track: "alpha", version_codes: [13], status: "completed" });
+    expect(fake.tracks.alpha?.[0]?.versionCodes).toEqual(["13"]);
+  });
+
   it("errors on an unknown version code", async () => {
     expect(
       await h.callError("promote_release", { from_track: "internal", to_track: "beta", version_codes: [99], status: "completed" }),
