@@ -6,3 +6,6 @@ coverage/
 *.json.key
 service-account*.json
 .env
+
+# local-only notes (account details, setup commands)
+_internal/
