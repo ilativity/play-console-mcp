@@ -43,7 +43,7 @@ describe("mode B: keyless impersonation", () => {
   });
 
   it("impersonated_service_account: uses source_credentials and the URL as given (with delegates)", async () => {
-    const url = `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/other@p.iam.gserviceaccount.com:generateAccessToken`;
+    const url = `https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${SA}:generateAccessToken`;
     const fake = google();
     const path = await adcFile({
       type: "impersonated_service_account",
@@ -56,6 +56,28 @@ describe("mode B: keyless impersonation", () => {
     expect(fake.calls[1]!.json).toMatchObject({ delegates: ["mid@p.iam.gserviceaccount.com"] });
   });
 
+  it("refuses an ADC file that impersonates a different account than PLAY_MCP_IMPERSONATE", async () => {
+    const fake = google();
+    const path = await adcFile({
+      type: "impersonated_service_account",
+      source_credentials: USER,
+      service_account_impersonation_url: "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/play-admin@p.iam.gserviceaccount.com:generateAccessToken",
+    });
+    await expect(provider(path, fake)()).rejects.toThrow(/impersonates play-admin@.*PLAY_MCP_IMPERSONATE is play-bot@/);
+    expect(fake.calls).toHaveLength(0);
+  });
+
+  it("refuses an impersonation URL that is not iamcredentials generateAccessToken", async () => {
+    const fake = google();
+    const path = await adcFile({
+      type: "impersonated_service_account",
+      source_credentials: USER,
+      service_account_impersonation_url: `https://androidpublisher.googleapis.com/v1/projects/-/serviceAccounts/${SA}:generateAccessToken`,
+    });
+    await expect(provider(path, fake)()).rejects.toThrow(/not an iamcredentials generateAccessToken URL/);
+    expect(fake.calls).toHaveLength(0);
+  });
+
   it("refuses an impersonation URL on a non-Google host before sending the user token", async () => {
     const fake = google();
     const path = await adcFile({
@@ -63,7 +85,7 @@ describe("mode B: keyless impersonation", () => {
       source_credentials: USER,
       service_account_impersonation_url: "https://evil.example/generateAccessToken",
     });
-    await expect(provider(path, fake)()).rejects.toThrow(/allowlist/);
+    await expect(provider(path, fake)()).rejects.toThrow(/not an iamcredentials generateAccessToken URL/);
     expect(fake.calls).toHaveLength(0);
   });
 
@@ -88,6 +110,15 @@ describe("mode B: keyless impersonation", () => {
       expect(err).toContain(`add-iam-policy-binding ${SA}`);
     });
 
+    it("403 SERVICE_DISABLED → enable the IAM Credentials API, not the binding", async () => {
+      const fake = google({
+        iam: { status: 403, json: { error: { message: "IAM Service Account Credentials API has not been used in project 1 before or it is disabled.", status: "PERMISSION_DENIED", details: [{ reason: "SERVICE_DISABLED" }] } } },
+      });
+      const err = await provider(await adcFile(USER), fake)().catch((e: Error) => e.message);
+      expect(err).toMatch(/gcloud services enable iamcredentials\.googleapis\.com/);
+      expect(err).not.toMatch(/add-iam-policy-binding/);
+    });
+
     it("invalid_grant on refresh → rerun gcloud auth application-default login", async () => {
       const fake = google({ refresh: { error: "invalid_grant", error_description: "Token has been expired or revoked." } });
       const err = await provider(await adcFile(USER), fake)().catch((e: Error) => e.message);
@@ -107,6 +138,19 @@ describe("mode B: keyless impersonation", () => {
       const err = await provider(await adcFile({ type: "external_account" }), google())().catch((e: Error) => e.message);
       expect(err).toMatch(/authorized_user or impersonated_service_account/);
     });
+  });
+
+  it("never follows a redirect with the refresh token or the user token", async () => {
+    const fake = google();
+    await provider(await adcFile(USER), fake)();
+    expect(fake.calls.map((c) => c.url.hostname)).toEqual(["oauth2.googleapis.com", "iamcredentials.googleapis.com"]);
+    const inits: RequestInit[] = [];
+    const spy: typeof fetch = (i, init) => {
+      inits.push(init ?? {});
+      return fake.fetch(i, init);
+    };
+    await createTokenProvider({ kind: "impersonate", serviceAccount: SA, adcPath: await adcFile(USER) }, spy)();
+    expect(inits.map((i) => i.redirect)).toEqual(["error", "error"]);
   });
 
   it("never puts the refresh token or client secret in an error", async () => {

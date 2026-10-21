@@ -30,6 +30,19 @@ const setupCommands = (sa: string) =>
     "  gcloud auth application-default login",
   ].join("\n");
 
+/** The service account a generateAccessToken URL targets, or undefined if it isn't one. */
+export function impersonationTarget(url: string): string | undefined {
+  let u: URL;
+  try {
+    u = assertAllowedUrl(url);
+  } catch {
+    return undefined;
+  }
+  if (u.hostname !== "iamcredentials.googleapis.com" || u.search || u.hash) return undefined;
+  const m = /^\/v1\/projects\/-\/serviceAccounts\/([^/]+):generateAccessToken$/.exec(u.pathname);
+  return m ? decodeURIComponent(m[1]!) : undefined;
+}
+
 function isAuthorizedUser(x: unknown): x is AuthorizedUser {
   const u = x as Partial<AuthorizedUser> | undefined;
   return u?.type === "authorized_user" && !!u.client_id && !!u.client_secret && !!u.refresh_token;
@@ -59,8 +72,19 @@ export async function loadAdc(src: ImpersonationSource): Promise<{ user: Authori
     if (!isAuthorizedUser(imp.source_credentials) || typeof imp.service_account_impersonation_url !== "string") {
       throw new Error(`ADC file ${src.adcPath}: impersonated_service_account needs authorized_user source_credentials and service_account_impersonation_url.`);
     }
-    // Used as given — but still only ever sent to an allowlisted Google host.
-    assertAllowedUrl(imp.service_account_impersonation_url);
+    // Used as given, but only if it is a generateAccessToken call for the SAME account as
+    // PLAY_MCP_IMPERSONATE: otherwise every Play call would silently run as another account.
+    const target = impersonationTarget(imp.service_account_impersonation_url);
+    if (!target) {
+      throw new Error(
+        `ADC file ${src.adcPath}: service_account_impersonation_url is not an iamcredentials generateAccessToken URL.`,
+      );
+    }
+    if (target.toLowerCase() !== src.serviceAccount.toLowerCase()) {
+      throw new Error(
+        `ADC file ${src.adcPath} impersonates ${target}, but PLAY_MCP_IMPERSONATE is ${src.serviceAccount}. Refusing to act as a different account; make them match.`,
+      );
+    }
     return { user: imp.source_credentials, url: imp.service_account_impersonation_url, delegates: imp.delegates };
   }
   throw new Error(
@@ -78,6 +102,8 @@ async function refreshUserToken(user: AuthorizedUser, fetchImpl: typeof fetch): 
       client_secret: user.client_secret,
       refresh_token: user.refresh_token,
     }).toString(),
+    // Never let a redirect carry the refresh token and client secret to another host.
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });
   const body = (await res.json().catch(() => ({}))) as { access_token?: string; error?: string; error_description?: string };
@@ -105,6 +131,11 @@ export async function mintImpersonated(src: ImpersonationSource, fetchImpl: type
     signal: AbortSignal.timeout(30_000),
   });
   const body = (await res.json().catch(() => ({}))) as { accessToken?: string; expireTime?: string; error?: { message?: string } };
+  if (res.status === 403 && /SERVICE_DISABLED|accessNotConfigured|has not been used in project|is disabled/i.test(JSON.stringify(body))) {
+    throw new Error(
+      `The IAM Service Account Credentials API is not enabled (403: ${body.error?.message ?? "service disabled"}). Enable it once: gcloud services enable iamcredentials.googleapis.com`,
+    );
+  }
   if (res.status === 403) {
     throw new Error(
       `Not allowed to impersonate ${src.serviceAccount} (403: ${body.error?.message ?? "permission denied"}). Your Google account needs the Service Account Token Creator role on it:\n${setupCommands(src.serviceAccount).split("\n")[0]}`,

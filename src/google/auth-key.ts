@@ -26,7 +26,12 @@ export function parseServiceAccountKey(json: string): ServiceAccountKey {
   } catch {
     throw new Error("Service-account key is not valid JSON.");
   }
-  const key = parsed as Partial<ServiceAccountKey>;
+  const key = parsed as Partial<ServiceAccountKey> & { type?: string };
+  if (key.type === "authorized_user" || key.type === "impersonated_service_account") {
+    throw new Error(
+      `This is a gcloud user credential (${key.type}), not a service-account key. For keyless mode set PLAY_MCP_IMPERSONATE=<service-account email>.`,
+    );
+  }
   if (typeof key.client_email !== "string" || typeof key.private_key !== "string") {
     throw new Error("Service-account key must contain client_email and private_key.");
   }
@@ -64,6 +69,8 @@ export async function mintFromKey(source: KeySource, fetchImpl: typeof fetch, no
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion,
     }).toString(),
+    // Never let a redirect carry the signed assertion to another host.
+    redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });
   const body = (await res.json().catch(() => ({}))) as {

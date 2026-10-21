@@ -66,6 +66,10 @@ describe("token provider", () => {
     expect(err.message).not.toContain("PRIVATE KEY");
   });
 
+  it("mode A points a gcloud user credential at keyless mode", () => {
+    expect(() => parseServiceAccountKey(JSON.stringify({ type: "authorized_user", client_id: "x" }))).toThrow(/PLAY_MCP_IMPERSONATE/);
+  });
+
   it("rejects malformed keys", () => {
     expect(() => parseServiceAccountKey("nope")).toThrow(/JSON/);
     expect(() => parseServiceAccountKey("{}")).toThrow(/client_email/);
