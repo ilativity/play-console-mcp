@@ -1,0 +1,55 @@
+{
+  "name": "@ilativity/play-console-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for the Google Play Console: releases, vitals, reviews, store listing — with guarded writes.",
+  "license": "MIT",
+  "author": "ilativity",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ilativity/play-console-mcp.git"
+  },
+  "type": "module",
+  "bin": {
+    "play-console-mcp": "dist/index.js"
+  },
+  "main": "dist/index.js",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE",
+    "NOTICE.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "test": "vitest run",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "google-play",
+    "play-console",
+    "android"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "jose": "6.2.13",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.39.5",
+    "@types/node": "20.19.43",
+    "eslint": "9.39.5",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.72.0",
+    "vitest": "4.1.12"
+  }
+}
