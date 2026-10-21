@@ -312,7 +312,24 @@ export const vitalsTools: ToolDef[] = [
             dimensions: ["versionCode"],
             metrics: [spec.primary, "distinctUsers"],
           });
-          out[key] = { metric: spec.primary, window: { start: res.start, end_exclusive: res.end_exclusive }, versions: aggregateByVersion(res.rows, spec.primary) };
+          const window = { start: res.start, end_exclusive: res.end_exclusive };
+          const split = spec.alwaysDimensions?.[0];
+          if (split) {
+            // Compare like with like: one version table per start type, never a blend.
+            const groups = new Map<string, FlatRow[]>();
+            for (const r of res.rows) {
+              const g = r.dimensions[split] ?? "unknown";
+              groups.set(g, [...(groups.get(g) ?? []), r]);
+            }
+            out[key] = {
+              metric: spec.primary,
+              window,
+              split_by: split,
+              groups: Object.fromEntries([...groups].map(([g, rows]) => [g, aggregateByVersion(rows, spec.primary)])),
+            };
+          } else {
+            out[key] = { metric: spec.primary, window, versions: aggregateByVersion(res.rows, spec.primary) };
+          }
         } catch (e) {
           out[key] = { error: (e as Error).message };
         }

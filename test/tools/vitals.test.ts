@@ -95,6 +95,23 @@ describe("vitals tools", () => {
     expect((fake.find("POST", /:query$/)[0]!.json as { dimensions: string[] }).dimensions).toEqual(["versionCode"]);
   });
 
+  it("vitals_by_version for slow start keeps start types apart", async () => {
+    const row = (v: string, type: string, rate: number) => ({
+      dimensions: [
+        { dimension: "versionCode", int64Value: v },
+        { dimension: "startType", stringValue: type },
+      ],
+      metrics: [metric("slowStartRate", rate), metric("distinctUsers", 10)],
+    });
+    const fake = reporting((set) => (set === "slowStartRateMetricSet" ? [row("5", "COLD", 0.2), row("5", "HOT", 0.01), row("6", "COLD", 0.1)] : []));
+    const h = await connect(fake);
+    const res = await h.call("vitals_by_version", { metric_sets: ["slow_start"] });
+    expect(res.slow_start.split_by).toBe("startType");
+    expect(res.slow_start.groups.COLD.map((v: { value_percent: number }) => v.value_percent)).toEqual([10, 20]);
+    expect(res.slow_start.groups.HOT).toEqual([expect.objectContaining({ version_code: "5", value_percent: 1 })]);
+    expect((fake.find("POST", /:query$/)[0]!.json as { dimensions: string[] }).dimensions).toEqual(["startType", "versionCode"]);
+  });
+
   it("error issues, reports, anomalies and freshness hit the reporting API", async () => {
     const fake = reporting(() => [])
       .on("GET", /errorIssues:search$/, { json: { errorIssues: [] } })
