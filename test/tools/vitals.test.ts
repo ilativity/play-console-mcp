@@ -68,7 +68,28 @@ describe("vitals tools", () => {
     expect(res.metrics.crash).toMatchObject({ bad_behaviour: true, threshold_percent: 1.09, values: [{ value_percent: 2 }] });
     expect(res.metrics.anr).toMatchObject({ bad_behaviour: false, threshold_percent: 0.47 });
     expect(res.metrics.slow_rendering.threshold_percent).toBeNull();
+    // No rows is unknown, not healthy.
+    expect(res.metrics.slow_rendering).toMatchObject({ no_data: true });
+    expect(res.no_data).toEqual(["slow_start", "slow_rendering", "excessive_wakeup", "stuck_wakelock"]);
     expect(Object.keys(res.metrics)).toHaveLength(6);
+  });
+
+  it("vitals_summary: an app with no vitals data is 'no data', never 'healthy'", async () => {
+    const h = await connect(reporting(() => []));
+    const res = await h.call("vitals_summary");
+    expect(res.metrics.crash).toMatchObject({ bad_behaviour: null, no_data: true });
+    expect(res.over_threshold).toEqual([]);
+    expect(res.no_data).toHaveLength(6);
+  });
+
+  it("vitals_summary marks games-only metrics as not applicable, not as errors", async () => {
+    const fake = reporting(() => []).on("GET", /slowRenderingRateMetricSet$/, {
+      status: 403,
+      json: { error: { code: 403, message: "slowRenderingRateMetricSet resource is only accessible to games" } },
+    });
+    const res = await (await connect(fake)).call("vitals_summary");
+    expect(res.metrics.slow_rendering).toEqual({ not_applicable: "Google offers this metric for games only." });
+    expect(res.errors).toEqual([]);
   });
 
   it("vitals_summary reports one metric's failure without failing the rest", async () => {
@@ -76,7 +97,8 @@ describe("vitals tools", () => {
     const h = await connect(fake);
     const res = await h.call("vitals_summary");
     expect(res.metrics.anr.error).toMatch(/denied/);
-    expect(res.metrics.crash.bad_behaviour).toBe(false);
+    expect(res.metrics.crash.bad_behaviour).toBeNull();
+    expect(res.errors).toEqual(["anr"]);
   });
 
   it("vitals_by_version groups by versionCode", async () => {

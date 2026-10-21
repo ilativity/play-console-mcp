@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { seg, type PlayClient } from "../google/client.js";
+import { GoogleApiError, seg, type PlayClient } from "../google/client.js";
 import { defineTool, packageArg, type ToolDef } from "./common.js";
 
 interface MetricSetSpec {
@@ -176,18 +176,27 @@ export async function summarizeMetricSet(client: PlayClient, pkg: string, key: M
     value_percent: pct(r.metrics[spec.rolling28d]),
     distinct_users: r.metrics.distinctUsers,
   }));
+  const hasData = res.rows.some((r) => r.metrics[spec.rolling28d] !== undefined);
   const worst = Math.max(...res.rows.map((r) => r.metrics[spec.rolling28d] ?? 0), 0);
   return {
     metric: spec.rolling28d,
     as_of: res.start,
     values: byDim,
+    // No rows is "unknown", never "healthy": Google withholds vitals for apps with too few users.
+    ...(hasData ? {} : { no_data: true, note: NO_DATA_NOTE }),
     ...(spec.threshold !== undefined
-      ? {
-          threshold_percent: pct(spec.threshold),
-          bad_behaviour: res.rows.length > 0 && worst > spec.threshold,
-        }
-      : { threshold_percent: null, note: "Google publishes no overall bad-behaviour threshold for this metric." }),
+      ? { threshold_percent: pct(spec.threshold), bad_behaviour: hasData ? worst > spec.threshold : null }
+      : { threshold_percent: null, threshold_note: "Google publishes no overall bad-behaviour threshold for this metric." }),
   };
+}
+
+const NO_DATA_NOTE = "No data in this window. Google withholds vitals until an app has enough active users.";
+
+/** Google answers 403 for metric sets that don't apply to the app (slow rendering is games-only). */
+function notApplicable(e: unknown): string | undefined {
+  return e instanceof GoogleApiError && e.status === 403 && /only accessible to games/i.test(e.message)
+    ? "Google offers this metric for games only."
+    : undefined;
 }
 
 export async function vitalsSummary(client: PlayClient, pkg: string) {
@@ -197,12 +206,19 @@ export async function vitalsSummary(client: PlayClient, pkg: string) {
       try {
         out[key] = await summarizeMetricSet(client, pkg, key);
       } catch (e) {
-        out[key] = { error: (e as Error).message };
+        const na = notApplicable(e);
+        out[key] = na ? { not_applicable: na } : { error: (e as Error).message };
       }
     }),
   );
-  const flagged = METRIC_KEYS.filter((k) => (out[k] as { bad_behaviour?: boolean }).bad_behaviour === true);
-  return { package_name: pkg, over_threshold: flagged, metrics: Object.fromEntries(METRIC_KEYS.map((k) => [k, out[k]])) };
+  const pick = (test: (v: Record<string, unknown>) => boolean) => METRIC_KEYS.filter((k) => test(out[k] as Record<string, unknown>));
+  return {
+    package_name: pkg,
+    over_threshold: pick((v) => v.bad_behaviour === true),
+    no_data: pick((v) => v.no_data === true),
+    errors: pick((v) => "error" in v),
+    metrics: Object.fromEntries(METRIC_KEYS.map((k) => [k, out[k]])),
+  };
 }
 
 /** Per-version averages, weighted by daily distinct users. */
@@ -331,7 +347,8 @@ export const vitalsTools: ToolDef[] = [
             out[key] = { metric: spec.primary, window, versions: aggregateByVersion(res.rows, spec.primary) };
           }
         } catch (e) {
-          out[key] = { error: (e as Error).message };
+          const na = notApplicable(e);
+          out[key] = na ? { not_applicable: na } : { error: (e as Error).message };
         }
       }
       return { package_name: pkg, ...out };
