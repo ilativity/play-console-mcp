@@ -49,6 +49,18 @@ describe("uploadMedia", () => {
     expect(fake.find("PUT", /bundles$/)[1]!.headers["content-range"]).toBe(`bytes 100-${Math.min(100 + CHUNK_SIZE, total) - 1}/${total}`);
   });
 
+  it("restarts from 0 when a 308 carries no Range header (nothing stored yet)", async () => {
+    const total = RESUMABLE_THRESHOLD + 1;
+    let n = 0;
+    const fake = new FakeFetch()
+      .on("POST", /bundles$/, { headers: { location: SESSION } })
+      .on("PUT", /bundles$/, (c) =>
+        n++ === 0 ? { status: 308 } : c.headers["content-range"]?.endsWith(`-${total - 1}/${total}`) ? { json: { versionCode: 9 } } : { status: 308, headers: { range: `bytes=0-${CHUNK_SIZE - 1}` } },
+      );
+    await uploadMedia(testClient(fake), PATH, new Uint8Array(total), "application/octet-stream");
+    expect(fake.find("PUT", /bundles$/)[1]!.headers["content-range"]).toBe(`bytes 0-${CHUNK_SIZE - 1}/${total}`);
+  });
+
   it("refuses a session URL on a foreign host", async () => {
     const fake = new FakeFetch().on("POST", /bundles$/, { headers: { location: "https://evil.example/steal" } });
     await expect(uploadMedia(testClient(fake), PATH, new Uint8Array(RESUMABLE_THRESHOLD + 1), "x")).rejects.toThrow(/allowlist/);

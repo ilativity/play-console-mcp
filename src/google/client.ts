@@ -151,7 +151,9 @@ export class PlayClient {
           method,
           headers: { ...headers, authorization: `Bearer ${token}` },
           body,
-          redirect: "error",
+          // Google APIs never redirect; refuse 3xx — except a 3xx the caller expects (the
+          // resumable upload's 308), which "error" would turn into a network failure.
+          redirect: opts.acceptStatus?.some((s) => s >= 300 && s < 400) ? "manual" : "error",
           signal: AbortSignal.timeout(opts.timeoutMs ?? this.defaultTimeoutMs),
         });
       } catch (e) {

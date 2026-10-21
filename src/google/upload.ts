@@ -51,7 +51,10 @@ async function uploadResumable<T>(
   if (!session) throw new Error("Resumable upload: Google did not return a session URL.");
 
   let offset = 0;
-  while (offset < total) {
+  // Bound the loop: a server that keeps answering 308 without progress must not spin forever.
+  const maxRequests = 4 * Math.ceil(total / CHUNK_SIZE) + 4;
+  for (let sent = 0; offset < total; sent++) {
+    if (sent >= maxRequests) throw new Error("Resumable upload: Google kept asking for more data without making progress.");
     const end = Math.min(offset + CHUNK_SIZE, total);
     const res = await client.rawUrl(session, {
       method: "PUT",
@@ -66,9 +69,10 @@ async function uploadResumable<T>(
     if (res.status !== 308) return parseJson<T>(res);
     await res.body?.cancel().catch(() => {});
     // "Range: bytes=0-N" says what Google has; continue right after it.
+    // No Range header means Google has stored nothing yet: start again from 0.
     const range = res.headers.get("range");
     const m = range ? /bytes=0-(\d+)/.exec(range) : null;
-    offset = m ? Number(m[1]) + 1 : end;
+    offset = m ? Number(m[1]) + 1 : 0;
   }
   throw new Error("Resumable upload: all bytes sent but Google never confirmed completion.");
 }

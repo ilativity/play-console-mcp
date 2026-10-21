@@ -57,6 +57,11 @@ export class FakeFetch {
       const m = target.match(r.re);
       if (r.method === call.method && m) {
         const reply = await r.fn(call, m);
+        const status = reply.status ?? 200;
+        // Real fetch turns any 3xx into a network error under redirect: "error".
+        if (status >= 300 && status < 400 && init?.redirect === "error") {
+          throw new TypeError("fetch failed", { cause: new Error("unexpected redirect") });
+        }
         const text = reply.text ?? (reply.json === undefined ? "" : JSON.stringify(reply.json));
         return new Response(text === "" && [204, 308].includes(reply.status ?? 200) ? null : text, {
           status: reply.status ?? 200,
