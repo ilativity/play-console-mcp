@@ -2,7 +2,7 @@ import { generateKeyPairSync } from "node:crypto";
 import { decodeJwt } from "jose";
 import { describe, expect, it } from "vitest";
 import { loadConfig } from "../src/config.js";
-import { SCOPES, TOKEN_URL, createTokenProvider, parseServiceAccountKey } from "../src/google/auth.js";
+import { SCOPES, STORAGE_SCOPE, TOKEN_URL, createTokenProvider, parseServiceAccountKey } from "../src/google/auth.js";
 import { FakeFetch } from "./helpers.js";
 
 const { privateKey } = generateKeyPairSync("rsa", { modulusLength: 2048 });
@@ -33,6 +33,16 @@ describe("token provider", () => {
     expect(claims.iss).toBe("bot@proj.iam.gserviceaccount.com");
     expect(claims.aud).toBe(TOKEN_URL);
     expect(claims.scope).toBe(SCOPES.join(" "));
+  });
+
+  it("asks for the storage scope only when it is passed as an extra scope", async () => {
+    const scopeOf = async (extra?: string[]) => {
+      const fake = tokenEndpoint();
+      await createTokenProvider({ kind: "inline", json: KEY_JSON }, fake.fetch, Date.now, extra)();
+      return decodeJwt(new URLSearchParams(fake.calls[0]!.json as string).get("assertion")!).scope;
+    };
+    expect(await scopeOf()).toBe(SCOPES.join(" "));
+    expect(await scopeOf([STORAGE_SCOPE])).toBe([...SCOPES, STORAGE_SCOPE].join(" "));
   });
 
   it("caches the token until shortly before expiry, then refreshes", async () => {
@@ -98,6 +108,21 @@ describe("config", () => {
     expect(win).toMatchObject({ adcPath: expect.stringMatching(/appdata[\\/]gcloud[\\/]application_default_credentials\.json$/) });
     const nix = loadConfig({ PLAY_MCP_IMPERSONATE: "sa@x" }, "linux").authSource;
     expect(nix).toMatchObject({ adcPath: expect.stringMatching(/\.config[\\/]gcloud[\\/]application_default_credentials\.json$/) });
+  });
+
+  it("PLAY_MCP_REPORTS_BUCKET accepts the copied URI, gs://<bucket> or the bare name", () => {
+    const bucket = (v?: string) => loadConfig({ PLAY_MCP_REPORTS_BUCKET: v }).reportsBucket;
+    expect(bucket()).toBeUndefined();
+    expect(bucket("  ")).toBeUndefined();
+    expect(bucket("gs://pubsite_prod_1234567890/stats/installs/")).toBe("pubsite_prod_1234567890");
+    expect(bucket("gs://pubsite_prod_rev_01234567890987654321")).toBe("pubsite_prod_rev_01234567890987654321");
+    expect(bucket("pubsite_prod_42")).toBe("pubsite_prod_42");
+  });
+
+  it("PLAY_MCP_REPORTS_BUCKET that is not a Play bucket is a startup error naming the copy button", () => {
+    for (const bad of ["my-bucket", "gs://evil.example/pubsite_prod_1", "pubsite_prod_", "pubsite_prod_12/../x", "https://storage.googleapis.com/pubsite_prod_1"]) {
+      expect(() => loadConfig({ PLAY_MCP_REPORTS_BUCKET: bad }), bad).toThrow(/Copy Cloud Storage URI/);
+    }
   });
 
   it("parses flags", () => {

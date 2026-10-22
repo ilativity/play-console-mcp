@@ -12,6 +12,9 @@ export const SCOPES = [
   "https://www.googleapis.com/auth/playdeveloperreporting",
 ];
 
+/** Read access to Play's bulk-report bucket; requested only when PLAY_MCP_REPORTS_BUCKET is set. */
+export const STORAGE_SCOPE = "https://www.googleapis.com/auth/devstorage.read_only";
+
 interface ServiceAccountKey {
   client_email: string;
   private_key: string;
@@ -50,11 +53,16 @@ async function loadKey(source: KeySource): Promise<ServiceAccountKey> {
 }
 
 /** Mode A: signs a service-account JWT locally (RS256) and exchanges it for a token. */
-export async function mintFromKey(source: KeySource, fetchImpl: typeof fetch, now: () => number): Promise<MintedToken> {
+export async function mintFromKey(
+  source: KeySource,
+  fetchImpl: typeof fetch,
+  now: () => number,
+  scopes: string[] = SCOPES,
+): Promise<MintedToken> {
   const key = await loadKey(source);
   const privateKey = await importPKCS8(key.private_key, "RS256");
   const iat = Math.floor(now() / 1000);
-  const assertion = await new SignJWT({ scope: SCOPES.join(" ") })
+  const assertion = await new SignJWT({ scope: scopes.join(" ") })
     .setProtectedHeader({ alg: "RS256", typ: "JWT" })
     .setIssuer(key.client_email)
     .setAudience(TOKEN_URL)

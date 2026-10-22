@@ -9,6 +9,8 @@ export interface Config {
   allowDestructive: boolean;
   /** If set, upload tools only read files under this directory (after realpath). */
   fileRoot: string | undefined;
+  /** Play's bulk-report bucket (bare name). The stats tools exist only when it is set. */
+  reportsBucket: string | undefined;
 }
 
 export type AuthSource =
@@ -39,6 +41,26 @@ export function defaultAdcPath(env: Env = process.env, platform: NodeJS.Platform
   return join(homedir(), ".config", "gcloud", "application_default_credentials.json");
 }
 
+const BUCKET_RE = /^pubsite_prod(_rev)?_\d+$/;
+
+/**
+ * Accepts the bucket as Play Console's "Copy Cloud Storage URI" button gives it
+ * (`gs://pubsite_prod_…/stats/installs/`), as `gs://<bucket>`, or as the bare name.
+ */
+export function parseReportsBucket(value: string | undefined): string | undefined {
+  const v = nonEmpty(value);
+  if (!v) return undefined;
+  // Only the gs:// form may carry a path (the copied URI ends in /stats/installs/).
+  const uri = /^gs:\/\/([^/]+)(\/.*)?$/i.exec(v);
+  const bucket = uri ? uri[1]! : v;
+  if (!BUCKET_RE.test(bucket)) {
+    throw new Error(
+      `PLAY_MCP_REPORTS_BUCKET is not a Play reports bucket: ${JSON.stringify(v)}. Copy it from Play Console → Manage account → Play apps reports → Statistics → "Copy Cloud Storage URI" (it looks like gs://pubsite_prod_…).`,
+    );
+  }
+  return bucket;
+}
+
 export function loadConfig(env: Env = process.env, platform: NodeJS.Platform = process.platform): Config {
   const impersonate = nonEmpty(env.PLAY_MCP_IMPERSONATE);
   const keyPath = nonEmpty(env.PLAY_MCP_KEY_PATH);
@@ -58,5 +80,6 @@ export function loadConfig(env: Env = process.env, platform: NodeJS.Platform = p
     readOnly: isTruthy(env.PLAY_MCP_READ_ONLY),
     allowDestructive: isTruthy(env.PLAY_MCP_ALLOW_DESTRUCTIVE),
     fileRoot: nonEmpty(env.PLAY_MCP_FILE_ROOT),
+    reportsBucket: parseReportsBucket(env.PLAY_MCP_REPORTS_BUCKET),
   };
 }

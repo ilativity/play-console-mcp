@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { SCOPES, createTokenProvider } from "../src/google/auth.js";
+import { SCOPES, STORAGE_SCOPE, createTokenProvider } from "../src/google/auth.js";
 import { FakeFetch } from "./helpers.js";
 
 const SA = "play-bot@proj.iam.gserviceaccount.com";
@@ -40,6 +40,13 @@ describe("mode B: keyless impersonation", () => {
     expect(iam.url.href).toBe(`https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${encodeURIComponent(SA)}:generateAccessToken`);
     expect(iam.headers.authorization).toBe("Bearer user-token");
     expect(iam.json).toEqual({ scope: SCOPES, lifetime: "3600s" });
+  });
+
+  it("passes an extra scope (storage) into the generateAccessToken body", async () => {
+    const fake = google();
+    const get = createTokenProvider({ kind: "impersonate", serviceAccount: SA, adcPath: await adcFile(USER) }, fake.fetch, Date.now, [STORAGE_SCOPE]);
+    await get();
+    expect(fake.calls[1]!.json).toEqual({ scope: [...SCOPES, STORAGE_SCOPE], lifetime: "3600s" });
   });
 
   it("impersonated_service_account: uses source_credentials and the URL as given (with delegates)", async () => {

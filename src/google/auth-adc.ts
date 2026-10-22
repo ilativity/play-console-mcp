@@ -120,13 +120,18 @@ async function refreshUserToken(user: AuthorizedUser, fetchImpl: typeof fetch): 
  * Mode B: refreshes the user's ADC token, then trades it for a short-lived token of the
  * service account via iamcredentials generateAccessToken. No private key exists anywhere.
  */
-export async function mintImpersonated(src: ImpersonationSource, fetchImpl: typeof fetch, now: () => number): Promise<MintedToken> {
+export async function mintImpersonated(
+  src: ImpersonationSource,
+  fetchImpl: typeof fetch,
+  now: () => number,
+  scopes: string[] = SCOPES,
+): Promise<MintedToken> {
   const { user, url, delegates } = await loadAdc(src);
   const userToken = await refreshUserToken(user, fetchImpl);
   const res = await fetchImpl(assertAllowedUrl(url), {
     method: "POST",
     headers: { "content-type": "application/json", authorization: `Bearer ${userToken}` },
-    body: JSON.stringify({ scope: SCOPES, lifetime: "3600s", ...(delegates?.length ? { delegates } : {}) }),
+    body: JSON.stringify({ scope: scopes, lifetime: "3600s", ...(delegates?.length ? { delegates } : {}) }),
     redirect: "error",
     signal: AbortSignal.timeout(30_000),
   });

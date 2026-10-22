@@ -1,8 +1,8 @@
 import type { AuthSource } from "../config.js";
 import { mintImpersonated } from "./auth-adc.js";
-import { mintFromKey } from "./auth-key.js";
+import { SCOPES, mintFromKey } from "./auth-key.js";
 
-export { SCOPES, TOKEN_URL, parseServiceAccountKey } from "./auth-key.js";
+export { SCOPES, STORAGE_SCOPE, TOKEN_URL, parseServiceAccountKey } from "./auth-key.js";
 
 export interface MintedToken {
   token: string;
@@ -17,12 +17,15 @@ const REFRESH_MARGIN_MS = 60_000;
 /**
  * Returns a function that yields a bearer token, minting a new one 60s before expiry.
  * Tokens live only in this closure — never written to disk or logged.
+ * `extraScopes` are requested on top of SCOPES (the storage scope, when a reports bucket is set).
  */
 export function createTokenProvider(
   source: AuthSource | undefined,
   fetchImpl: typeof fetch = fetch,
   now: () => number = Date.now,
+  extraScopes: string[] = [],
 ): TokenProvider {
+  const scopes = [...SCOPES, ...extraScopes];
   const mint = (): Promise<MintedToken> => {
     if (!source) {
       return Promise.reject(
@@ -31,7 +34,9 @@ export function createTokenProvider(
         ),
       );
     }
-    return source.kind === "impersonate" ? mintImpersonated(source, fetchImpl, now) : mintFromKey(source, fetchImpl, now);
+    return source.kind === "impersonate"
+      ? mintImpersonated(source, fetchImpl, now, scopes)
+      : mintFromKey(source, fetchImpl, now, scopes);
   };
 
   let cached: MintedToken | undefined;

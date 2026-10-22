@@ -147,6 +147,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     readOnly: false,
     allowDestructive: false,
     fileRoot: undefined,
+    reportsBucket: undefined,
     ...overrides,
   };
 }
