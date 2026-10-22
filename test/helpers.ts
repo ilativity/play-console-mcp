@@ -140,6 +140,12 @@ export class FakePlay extends FakeFetch {
   }
 }
 
+/** UTF-16LE bytes, with Play's BOM unless told otherwise — the encoding of Play's report CSVs. */
+export function utf16le(text: string, bom = true): Uint8Array {
+  const body = Buffer.from(text, "utf16le");
+  return new Uint8Array(bom ? Buffer.concat([Buffer.from([0xff, 0xfe]), body]) : body);
+}
+
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
     authSource: undefined,
