@@ -54,7 +54,10 @@ export function decodeCsv(bytes: Uint8Array): string {
   return new TextDecoder("utf-8").decode(bytes);
 }
 
-/** RFC 4180: quoted fields, "" escapes, commas and newlines inside quotes, CRLF or LF. */
+/**
+ * RFC 4180: quoted fields, "" escapes, commas and newlines inside quotes, CRLF or LF. A quote
+ * inside an unquoted field (a device named `Tab 7"`) is a literal, not the start of quoting.
+ */
 export function parseCsv(text: string): string[][] {
   const rows: string[][] = [];
   let row: string[] = [];
@@ -77,7 +80,7 @@ export function parseCsv(text: string): string[][] {
           i++;
         } else quoted = false;
       } else field += c;
-    } else if (c === '"') quoted = true;
+    } else if (c === '"' && field === "") quoted = true;
     else if (c === ",") {
       row.push(field);
       field = "";
@@ -112,7 +115,7 @@ export interface ReportRow {
 }
 
 export interface ParsedReport {
-  /** snake_case metric columns, in file order. */
+  /** snake_case value columns, in file order: the known metrics and any unknown column. */
   metrics: string[];
   /** The original header of the dimension column, if the file has one. */
   dimensionHeader?: string;
@@ -126,38 +129,59 @@ function toNumber(cell: string | undefined): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** An unknown column: a number when it looks like one, else its text. */
+function toValue(cell: string | undefined): ReportValue {
+  const t = cell?.trim() ?? "";
+  if (t === "") return null;
+  return toNumber(t) ?? t;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
 /**
- * Maps rows by header name. Metric cells become numbers (an empty cell is null, never 0);
- * the one column that is neither Date, Package Name nor a metric is `dimension_value`.
+ * Maps rows by header name. Metric cells become numbers (an empty cell is null, never 0).
+ * In a dimension file (`hasDimension`) the first column that is neither Date, Package Name
+ * nor a known metric is `dimension_value`; every other unknown column passes through,
+ * snake-cased. Whether a file has a dimension comes from its name, never from guessing at
+ * headers, so a new metric Play adds can't turn an overview into nonsense groups.
+ * Rows without a date are dropped; a date that isn't YYYY-MM-DD is an error, because
+ * snapshots and partial_month depend on ordering by date.
  */
-export function normaliseReport(table: string[][]): ParsedReport {
+export function normaliseReport(table: string[][], hasDimension: boolean): ParsedReport {
   const [header, ...body] = table;
   if (!header) return { metrics: [], rows: [] };
   const keys = header.map(snakeCase);
   const dateIdx = keys.indexOf("date");
   if (dateIdx < 0) throw new Error(`Report has no Date column (header: ${header.join(", ")}).`);
-  const metricIdx: number[] = [];
+  const valueIdx: number[] = [];
   let dimIdx: number | undefined;
   keys.forEach((k, i) => {
     if (i === dateIdx || k === "package_name") return;
-    if (METRIC_RE.test(k)) metricIdx.push(i);
-    else dimIdx ??= i;
+    if (hasDimension && dimIdx === undefined && !METRIC_RE.test(k)) dimIdx = i;
+    else valueIdx.push(i);
   });
-  const rows = body.map((cells) => {
-    const row: ReportRow = { date: cells[dateIdx]?.trim() ?? "" };
+  if (hasDimension && dimIdx === undefined) {
+    throw new Error(`Report should have a dimension column but has none (header: ${header.join(", ")}).`);
+  }
+  const rows: ReportRow[] = [];
+  for (const cells of body) {
+    const date = cells[dateIdx]?.trim() ?? "";
+    if (date === "") continue;
+    if (!ISO_DATE.test(date)) throw new Error(`Unexpected Date format ${JSON.stringify(date)}; expected YYYY-MM-DD.`);
+    const row: ReportRow = { date };
     if (dimIdx !== undefined) row.dimension_value = cells[dimIdx]?.trim() ?? "";
-    for (const i of metricIdx) row[keys[i]!] = toNumber(cells[i]);
-    return row;
-  });
+    for (const i of valueIdx) row[keys[i]!] = METRIC_RE.test(keys[i]!) ? toNumber(cells[i]) : toValue(cells[i]);
+    rows.push(row);
+  }
   return {
-    metrics: metricIdx.map((i) => keys[i]!),
+    metrics: valueIdx.map((i) => keys[i]!),
     ...(dimIdx !== undefined ? { dimensionHeader: header[dimIdx] } : {}),
     rows,
   };
 }
 
-export function readReport(bytes: Uint8Array): ParsedReport {
-  return normaliseReport(parseCsv(decodeCsv(bytes)));
+export function readReport(bytes: Uint8Array, hasDimension: boolean): ParsedReport {
+  return normaliseReport(parseCsv(decodeCsv(bytes)), hasDimension);
 }
 
 export type TotalRule = "sum" | "last_date";

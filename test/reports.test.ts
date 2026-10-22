@@ -69,6 +69,13 @@ describe("parseCsv", () => {
       ["last", "1"],
     ]);
   });
+
+  it("a quote inside an unquoted field is a literal and does not swallow the rest of the file", () => {
+    expect(parseCsv('2024-01-01,Tab 7",5\n2024-01-02,Other,6\n')).toEqual([
+      ["2024-01-01", 'Tab 7"', "5"],
+      ["2024-01-02", "Other", "6"],
+    ]);
+  });
 });
 
 describe("readReport", () => {
@@ -80,7 +87,7 @@ describe("readReport", () => {
   ].join("\r\n");
 
   it("maps columns by header name; an empty cell is null, not 0", () => {
-    const r = readReport(utf16le(overview));
+    const r = readReport(utf16le(overview), false);
     expect(r.dimensionHeader).toBeUndefined();
     expect(r.metrics).toEqual([
       "daily_device_installs",
@@ -100,26 +107,44 @@ describe("readReport", () => {
   });
 
   it("finds the dimension column, whatever it is called, and keeps a comma in its value", () => {
-    const r = readReport(utf16le('Date,Package Name,Device,Daily User Installs\n2026-09-01,a.b,"Samsung, Galaxy S24",7\n'));
+    const r = readReport(utf16le('Date,Package Name,Device,Daily User Installs\n2026-09-01,a.b,"Samsung, Galaxy S24",7\n'), true);
     expect(r.dimensionHeader).toBe("Device");
     expect(r.rows[0]).toEqual({ date: "2026-09-01", dimension_value: "Samsung, Galaxy S24", daily_user_installs: 7 });
   });
 
   it("reads an old-style header set (Active Device Installs, * events)", () => {
-    const r = readReport(utf16le("Date,Package Name,Country,Current Device Installs,Active Device Installs,Install events,Uninstall events\n2018-01-01,a.b,IL,10,8,2,1\n"));
+    const r = readReport(utf16le("Date,Package Name,Country,Current Device Installs,Active Device Installs,Install events,Uninstall events\n2018-01-01,a.b,IL,10,8,2,1\n"), true);
     expect(r.metrics).toEqual(["current_device_installs", "active_device_installs", "install_events", "uninstall_events"]);
     expect(r.rows[0]!.dimension_value).toBe("IL");
   });
 
+  it("an overview never grows a dimension: an unknown column passes through as a value", () => {
+    const r = readReport(utf16le("Date,Package Name,Daily User Installs,Daily Active Users,Source\n2026-09-01,a.b,3,100,organic\n"), false);
+    expect(r.dimensionHeader).toBeUndefined();
+    expect(r.rows[0]).toEqual({ date: "2026-09-01", daily_user_installs: 3, daily_active_users: 100, source: "organic" });
+    expect(monthTotals(r.rows, r.metrics).totals.daily_active_users).toBe(100);
+  });
+
+  it("a dimension file keeps a second unknown column instead of dropping it", () => {
+    const r = readReport(utf16le("Date,Package Name,Device,Brand,Daily User Installs\n2026-09-01,a.b,SM-S921,Samsung,2\n"), true);
+    expect(r.dimensionHeader).toBe("Device");
+    expect(r.rows[0]).toEqual({ date: "2026-09-01", dimension_value: "SM-S921", brand: "Samsung", daily_user_installs: 2 });
+    expect(() => readReport(utf16le("Date,Package Name,Daily User Installs\n2026-09-01,a.b,2\n"), true)).toThrow(/dimension column/);
+  });
+
+  it("drops rows without a date and refuses a date that isn't YYYY-MM-DD", () => {
+    expect(readReport(utf16le("Date,Package Name,Daily User Installs\n,a.b,9\n2026-09-01,a.b,1\n"), false).rows).toHaveLength(1);
+    expect(() => readReport(utf16le('Date,Package Name,Daily User Installs\n"Jan 9, 2024",a.b,1\n'), false)).toThrow(/YYYY-MM-DD/);
+  });
+
   it("refuses a file without a Date column", () => {
-    expect(() => readReport(utf16le("Package Name,Daily User Installs\na.b,1\n"))).toThrow(/Date/);
+    expect(() => readReport(utf16le("Package Name,Daily User Installs\na.b,1\n"), false)).toThrow(/Date/);
   });
 });
 
 describe("month totals", () => {
   it("sums Daily columns and takes snapshots from the last date that has a value", () => {
-    const r = readReport(
-      utf16le(
+    const r = readReport(utf16le(
         [
           "Date,Package Name,Daily Device Installs,Current Device Installs,Total User Installs,Installs on active devices",
           "2026-09-02,a.b,3,101,50,90",
@@ -127,6 +152,7 @@ describe("month totals", () => {
           "2026-09-03,a.b,,,51,",
         ].join("\n"),
       ),
+      false,
     );
     const t = monthTotals(r.rows, r.metrics);
     expect(t.totals).toEqual({
