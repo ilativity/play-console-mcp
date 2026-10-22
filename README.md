@@ -1,8 +1,8 @@
 # play-console-mcp
 
 An [MCP](https://modelcontextprotocol.io) server for the **Google Play Console**: releases and
-staged rollouts, Android vitals, reviews, store listing, testers, and a Digital Asset Links check
-for Trusted Web Activities. Write tools are on by default but guarded, so a careless call gives you
+staged rollouts, Android vitals, reviews, store listing, testers, install and ratings statistics,
+and a Digital Asset Links check for Trusted Web Activities. Write tools are on by default but guarded, so a careless call gives you
 a preview, not a release.
 
 - stdio only (no network listener), Node ≥ 20
@@ -54,6 +54,23 @@ are a second layer on top of it.
    release permissions only if you'll use the release tools.
 3. Keep the key file outside any repository.
 
+### Install and ratings statistics (optional)
+
+Neither Play API serves install counts. Play writes them as monthly CSV files into a Cloud Storage
+bucket that belongs to your developer account, and the four stats tools read those files.
+
+1. In Play Console → **Users and permissions** → the service account → **Account permissions**,
+   turn on *View app information and download bulk reports*. It must be an account permission, not
+   an app permission. A new grant can take hours, sometimes up to a day, to reach the bucket.
+2. In Play Console → **Manage account** → **Play apps reports** → **Statistics**, press
+   **Copy Cloud Storage URI**.
+3. Set `PLAY_MCP_REPORTS_BUCKET` to what you copied (for example
+   `gs://pubsite_prod_1234567890/stats/installs/`).
+
+Only then does the server register the stats tools and ask Google for the extra
+`devstorage.read_only` scope. Without the variable it requests exactly the scopes it always did.
+Play posts the files with a 3–7 day delay, so the current month is always partial.
+
 ### Keyless mode (no key file)
 
 If your organisation discourages downloading service-account keys, let your own Google login
@@ -85,6 +102,7 @@ account, and it can only mint tokens for service accounts you're allowed to impe
 | `PLAY_MCP_READ_ONLY=1` | Register **only** read tools. The client never sees a write tool. |
 | `PLAY_MCP_ALLOW_DESTRUCTIVE=1` | Register the destructive tools (delete images or listings) and allow replacing a whole tester list. |
 | `PLAY_MCP_FILE_ROOT` | If set, upload tools only read files under this directory. Symlinks are resolved first, so they can't escape it. |
+| `PLAY_MCP_REPORTS_BUCKET` | The reports bucket from *Copy Cloud Storage URI* (`gs://pubsite_prod_…`, with or without the path, or the bare name). Turns on the stats tools and the read-only storage scope. |
 
 The token is cached in memory only. The key and the token never appear in tool output or logs.
 
@@ -123,6 +141,7 @@ The token is cached in memory only. The key and the token never appear in tool o
 | Store listing | `list_listings`, `get_listing`, `get_app_details`, `list_images` R; `update_listing`, `update_app_details`, `upload_image` (PNG/JPEG, 15 MB) W; `delete_image`, `delete_all_images`, `delete_listing` **D** |
 | Testers | `get_testers` R, `update_testers` W (add/remove with a before/after diff; `replace` is **D**) |
 | Apps | `list_apps` R (the apps this service account can see), `app_overview` R (release status, vitals and unanswered reviews in one answer) |
+| Statistics (needs `PLAY_MCP_REPORTS_BUCKET`) | `list_reports` R (which months and dimensions exist; the cheapest access check), `get_install_stats` R (one month: per-day rows and totals, or by country, device, app version, … with top-N and `other`), `install_trend` R (month by month with the change from the previous month), `get_ratings_stats` R (daily and lifetime average rating; never a meaningless mean of daily averages) |
 | TWA | `check_asset_links` R: compares `https://<domain>/.well-known/assetlinks.json` with the app-signing certificate Play reports. A mismatch is the usual reason a TWA shows the browser URL bar. This is the only tool that contacts a non-Google host, and it sends no credentials there. |
 
 ## What the Play APIs don't offer

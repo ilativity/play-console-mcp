@@ -13,8 +13,19 @@ export class SafetyError extends Error {
   }
 }
 
-/** Read-only mode registers only read tools; destructive tools need an explicit opt-in. */
-export function shouldRegister(kind: ToolKind, config: Pick<Config, "readOnly" | "allowDestructive">): boolean {
+/** Configuration a tool cannot work without; such a tool is not registered when it is missing. */
+export type ToolRequirement = "reportsBucket";
+
+/**
+ * Read-only mode registers only read tools; destructive tools need an explicit opt-in;
+ * a tool that needs configuration (the reports bucket) appears only once it is set.
+ */
+export function shouldRegister(
+  kind: ToolKind,
+  config: Pick<Config, "readOnly" | "allowDestructive"> & Partial<Pick<Config, "reportsBucket">>,
+  requires?: ToolRequirement,
+): boolean {
+  if (requires === "reportsBucket" && !config.reportsBucket) return false;
   if (kind === "read") return true;
   if (config.readOnly) return false;
   if (kind === "destructive") return config.allowDestructive;

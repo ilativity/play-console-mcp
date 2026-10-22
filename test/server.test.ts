@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 import { ALL_TOOLS } from "../src/server.js";
 import { FakeFetch, connect, testConfig } from "./helpers.js";
 
-const byKind = (kind: string) => ALL_TOOLS.filter((t) => t.kind === kind).map((t) => t.name);
+// Tools that need configuration the default test config lacks (the reports bucket) are not registered.
+const byKind = (kind: string) => ALL_TOOLS.filter((t) => t.kind === kind && !t.requires).map((t) => t.name);
+const STATS = ["list_reports", "get_install_stats", "install_trend", "get_ratings_stats"];
 
 describe("tool registration", () => {
   it("tool names are unique", () => {
@@ -24,6 +26,13 @@ describe("tool registration", () => {
     expect(tools.every((t) => t.annotations?.readOnlyHint === true)).toBe(true);
   });
 
+  it("the install-stats tools exist only when a reports bucket is set, and are read tools", async () => {
+    const without = (await (await connect(new FakeFetch(), testConfig())).client.listTools()).tools.map((t) => t.name);
+    for (const n of STATS) expect(without).not.toContain(n);
+    const tools = (await (await connect(new FakeFetch(), testConfig({ readOnly: true, reportsBucket: "pubsite_prod_1" }))).client.listTools()).tools;
+    for (const n of STATS) expect(tools.find((t) => t.name === n)?.annotations?.readOnlyHint, n).toBe(true);
+  });
+
   it("PLAY_MCP_ALLOW_DESTRUCTIVE registers the destructive tools", async () => {
     const h = await connect(new FakeFetch(), testConfig({ allowDestructive: true }));
     const listed = (await h.client.listTools()).tools.map((t) => t.name);
@@ -31,7 +40,7 @@ describe("tool registration", () => {
   });
 
   it("every tool carries all four annotations", async () => {
-    const h = await connect(new FakeFetch(), testConfig({ allowDestructive: true }));
+    const h = await connect(new FakeFetch(), testConfig({ allowDestructive: true, reportsBucket: "pubsite_prod_1" }));
     for (const t of (await h.client.listTools()).tools) {
       expect(t.annotations, t.name).toMatchObject({
         readOnlyHint: expect.any(Boolean),
@@ -54,6 +63,7 @@ describe("tool registration", () => {
       "get_listing", "list_listings", "get_app_details", "list_images", "update_listing",
       "update_app_details", "upload_image", "delete_image", "delete_all_images", "delete_listing",
       "get_testers", "update_testers", "list_apps", "app_overview", "check_asset_links",
+      ...STATS,
     ];
     expect(ALL_TOOLS.map((t) => t.name).sort()).toEqual(spec.sort());
   });

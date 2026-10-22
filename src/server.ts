@@ -10,6 +10,7 @@ import { bundleTools } from "./tools/bundles.js";
 import { listingTools } from "./tools/listing.js";
 import { releaseTools } from "./tools/releases.js";
 import { reviewTools } from "./tools/reviews.js";
+import { statsTools } from "./tools/stats.js";
 import { testerTools } from "./tools/testers.js";
 import { twaTools } from "./tools/twa.js";
 import { vitalsTools } from "./tools/vitals.js";
@@ -25,6 +26,7 @@ export const ALL_TOOLS: ToolDef[] = [
   ...testerTools,
   ...appsTools,
   ...twaTools,
+  ...statsTools,
 ];
 
 export interface ServerDeps {
@@ -53,7 +55,7 @@ export function createServer(deps: ServerDeps): { server: McpServer; registered:
 
   const registered: string[] = [];
   for (const tool of deps.tools ?? ALL_TOOLS) {
-    if (!shouldRegister(tool.kind, config)) continue;
+    if (!shouldRegister(tool.kind, config, tool.requires)) continue;
     server.registerTool(
       tool.name,
       {

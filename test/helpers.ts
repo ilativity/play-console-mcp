@@ -21,6 +21,8 @@ export interface Reply {
   status?: number;
   json?: unknown;
   text?: string;
+  /** A binary body (e.g. a UTF-16 report CSV); wins over json/text. */
+  bytes?: Uint8Array;
   headers?: Record<string, string>;
 }
 
@@ -63,6 +65,7 @@ export class FakeFetch {
           throw new TypeError("fetch failed", { cause: new Error("unexpected redirect") });
         }
         const text = reply.text ?? (reply.json === undefined ? "" : JSON.stringify(reply.json));
+        if (reply.bytes) return new Response(reply.bytes, { status, headers: { "content-type": "text/csv", ...reply.headers } });
         return new Response(text === "" && [204, 308].includes(reply.status ?? 200) ? null : text, {
           status: reply.status ?? 200,
           headers: { "content-type": "application/json", ...reply.headers },

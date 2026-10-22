@@ -3,7 +3,7 @@ import { z } from "zod";
 import type { Config } from "../config.js";
 import type { PlayClient } from "../google/client.js";
 import type { EditOutcome } from "../google/edits.js";
-import type { ToolKind } from "../safety.js";
+import type { ToolKind, ToolRequirement } from "../safety.js";
 import { SafetyError, resolveUploadFile } from "../safety.js";
 
 export interface ToolContext {
@@ -21,6 +21,8 @@ export interface ToolDef<S extends z.ZodRawShape = z.ZodRawShape> {
   description: string;
   kind: ToolKind;
   idempotent?: boolean;
+  /** Registered only when this configuration is present. */
+  requires?: ToolRequirement;
   input: S;
   handler(args: z.infer<z.ZodObject<S>>, ctx: ToolContext): Promise<unknown>;
 }
