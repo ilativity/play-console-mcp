@@ -4,7 +4,7 @@ import { FakeFetch, TOKEN, testClient } from "./helpers.js";
 
 describe("host allowlist", () => {
   it("accepts the Google API hosts over https", () => {
-    for (const h of ["androidpublisher.googleapis.com", "playdeveloperreporting.googleapis.com", "oauth2.googleapis.com"]) {
+    for (const h of ["androidpublisher.googleapis.com", "playdeveloperreporting.googleapis.com", "oauth2.googleapis.com", "storage.googleapis.com"]) {
       expect(() => assertAllowedUrl(`https://${h}/x`)).not.toThrow();
     }
   });
@@ -15,7 +15,8 @@ describe("host allowlist", () => {
     "https://androidpublisher.googleapis.com.evil.com/x",
     "https://androidpublisher.googleapis.com:8443/x",
     "https://user:pw@androidpublisher.googleapis.com/x",
-    "https://storage.googleapis.com/x",
+    "https://storage.cloud.google.com/x",
+    "https://evil.storage.googleapis.com/x",
   ])("refuses %s", (url) => {
     expect(() => assertAllowedUrl(url)).toThrow(/allowlist/);
   });
@@ -49,6 +50,16 @@ describe("requests", () => {
     expect(res).toEqual({ ok: 1 });
     expect(fake.calls[0]!.url.href).toBe("https://androidpublisher.googleapis.com/androidpublisher/v3/applications/p.q/reviews?a=1");
     expect(fake.calls[0]!.headers.authorization).toBe(`Bearer ${TOKEN}`);
+  });
+
+  it("a storage object name stays one path segment (its slashes stay %2F)", async () => {
+    const fake = new FakeFetch().on("GET", /^storage\.googleapis\.com\/storage\/v1\/b\/[^/]+\/o\/[^/]+$/, { text: "a,b" });
+    const name = "stats/installs/installs_p.q_202609_overview.csv";
+    const res = await testClient(fake).raw("storage", `/b/${seg("pubsite_prod_1")}/o/${seg(name)}`, { query: { alt: "media" } });
+    expect(await res.text()).toBe("a,b");
+    expect(fake.calls[0]!.url.href).toBe(
+      "https://storage.googleapis.com/storage/v1/b/pubsite_prod_1/o/stats%2Finstalls%2Finstalls_p.q_202609_overview.csv?alt=media",
+    );
   });
 
   it("returns undefined for an empty body", async () => {

@@ -10,12 +10,15 @@ export const ALLOWED_HOSTS: ReadonlySet<string> = new Set([
   "oauth2.googleapis.com",
   // Mode B (keyless) only: the user token is traded for a service-account token here.
   "iamcredentials.googleapis.com",
+  // Play's bulk-report bucket (install and ratings CSVs); read-only scope, only when configured.
+  "storage.googleapis.com",
 ]);
 
 export const BASES = {
   publisher: "https://androidpublisher.googleapis.com/androidpublisher/v3",
   upload: "https://androidpublisher.googleapis.com/upload/androidpublisher/v3",
   reporting: "https://playdeveloperreporting.googleapis.com/v1beta1",
+  storage: "https://storage.googleapis.com/storage/v1",
 } as const;
 
 export type Api = keyof typeof BASES;
